@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"runtime"
@@ -64,7 +65,7 @@ func version() string {
 	if err != nil {
 		panic(err)
 	}
-	b, err := io.ReadAll(res.Body)
+	b, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		panic(err)
 	}
