@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -27,35 +28,38 @@ func main() {
 	}
 	defer gzr.Close()
 	tr := tar.NewReader(gzr)
+	destDir := "/usr/local"
 	for {
-		header, err := tr.Next()
+		hdr, err := tr.Next()
 		if err == io.EOF {
 			break // End of archive
 		}
 		if err != nil {
 			panic(err)
 		}
-		if header.Name == "go/bin/go" {
-			f, err := os.Create("/usr/bin/go")
-			if err != nil {
-				panic(err)
+
+		targetPath := filepath.Join(destDir, hdr.Name)
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, os.FileMode(hdr.Mode)); err != nil {
+				panic(fmt.Errorf("failed to create directory: %w", err))
 			}
-			defer f.Close()
-			_, err = io.Copy(f, tr)
-			if err != nil {
-				panic(err)
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				panic(fmt.Errorf("failed to create parent directory: %w", err))
 			}
-		}
-		if header.Name == "go/bin/gofmt" {
-			f, err := os.Create("/usr/bin/gofmt")
+			outFile, err := os.Create(targetPath)
 			if err != nil {
-				panic(err)
+				panic(fmt.Errorf("failed to create file: %w", err))
 			}
-			defer f.Close()
-			_, err = io.Copy(f, tr)
-			if err != nil {
-				panic(err)
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				panic(fmt.Errorf("failed to write file: %w", err))
 			}
+			outFile.Close()
+		default:
+			fmt.Printf("skipping unsupported file type: %s\n", hdr.Name)
 		}
 	}
 }
