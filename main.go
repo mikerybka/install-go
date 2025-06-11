@@ -11,10 +11,73 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 )
+
+func write(tr *tar.Reader, destDir string) error {
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			return fmt.Errorf("error reading tar entry: %w", err)
+		}
+
+		targetPath := filepath.Join(destDir, hdr.Name)
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, os.FileMode(hdr.Mode)); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory: %w", err)
+			}
+			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+			outFile.Close()
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for symlink: %w", err)
+			}
+			if err := os.Symlink(hdr.Linkname, targetPath); err != nil {
+				return fmt.Errorf("failed to create symlink: %w", err)
+			}
+		case tar.TypeLink:
+			linkTarget := filepath.Join(destDir, hdr.Linkname)
+			if err := os.Link(linkTarget, targetPath); err != nil {
+				return fmt.Errorf("failed to create hard link: %w", err)
+			}
+		case tar.TypeChar:
+			fallthrough
+		case tar.TypeBlock:
+			fallthrough
+		case tar.TypeFifo:
+			mode := uint32(hdr.Mode)
+			if err := syscall.Mknod(targetPath, mode, int(hdr.Devmajor)<<8|int(hdr.Devminor)); err != nil {
+				return fmt.Errorf("failed to create special file: %w", err)
+			}
+		default:
+			fmt.Printf("skipping unsupported file type: %s\n", hdr.Name)
+		}
+	}
+	return nil
+}
 
 func main() {
 	v := version()
+	err := os.RemoveAll("/usr/local/go")
+	if err != nil {
+		panic(err)
+	}
 	filename := fmt.Sprintf("%s.%s-%s.tar.gz", v, runtime.GOOS, runtime.GOARCH)
 	u := fmt.Sprintf("https://go.dev/dl/%s", filename)
 	res, err := http.Get(u)
@@ -29,38 +92,9 @@ func main() {
 	defer gzr.Close()
 	tr := tar.NewReader(gzr)
 	destDir := "/usr/local"
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break // End of archive
-		}
-		if err != nil {
-			panic(err)
-		}
-
-		targetPath := filepath.Join(destDir, hdr.Name)
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, os.FileMode(hdr.Mode)); err != nil {
-				panic(fmt.Errorf("failed to create directory: %w", err))
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-				panic(fmt.Errorf("failed to create parent directory: %w", err))
-			}
-			outFile, err := os.Create(targetPath)
-			if err != nil {
-				panic(fmt.Errorf("failed to create file: %w", err))
-			}
-			if _, err := io.Copy(outFile, tr); err != nil {
-				outFile.Close()
-				panic(fmt.Errorf("failed to write file: %w", err))
-			}
-			outFile.Close()
-		default:
-			fmt.Printf("skipping unsupported file type: %s\n", hdr.Name)
-		}
+	err = write(tr, destDir)
+	if err != nil {
+		panic(err)
 	}
 
 	home, err := os.UserHomeDir()
