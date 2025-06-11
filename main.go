@@ -62,6 +62,22 @@ func main() {
 			fmt.Printf("skipping unsupported file type: %s\n", hdr.Name)
 		}
 	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/root"
+	}
+
+	f, err := os.OpenFile(filepath.Join(home, ".bashrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	txt := fmt.Sprintf("\n# Go\nexport PATH=/usr/local/go/bin:%s/go/bin:$PATH\n", home)
+	if _, err := f.WriteString(txt); err != nil {
+		panic(err)
+	}
 }
 
 func version() string {
