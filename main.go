@@ -102,15 +102,39 @@ func main() {
 		home = "/root"
 	}
 
-	f, err := os.OpenFile(filepath.Join(home, ".bashrc"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Write to .bashrc if not already
+	txt := fmt.Sprintf("\n# Go\nexport PATH=/usr/local/go/bin:%s/go/bin:$PATH\n", home)
+	path := filepath.Join(home, ".bashrc")
+	f, err := os.Open(path)
+	if err != nil {
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(txt); err != nil {
+			panic(err)
+		}
+		return
+	}
+	b, err := ioutil.ReadAll(f)
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
-
-	txt := fmt.Sprintf("\n# Go\nexport PATH=/usr/local/go/bin:%s/go/bin:$PATH\n", home)
-	if _, err := f.WriteString(txt); err != nil {
+	err = f.Close()
+	if err != nil {
 		panic(err)
+	}
+	if !strings.Contains(string(b), txt) {
+		f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(txt); err != nil {
+			panic(err)
+		}
+		return
 	}
 }
 
